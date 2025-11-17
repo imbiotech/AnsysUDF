@@ -18,9 +18,14 @@ static int first_call = 1;
 /* Global variable to store updated pressure */
 real P_updated = 405300.0;
 
+#if !RP_HOST
+/* Parallel processing macros */
+#endif
+
 /* Execute before each time step using UDF_ADJUST macro */
 DEFINE_ADJUST(update_container_pressure, domain)
 {
+#if !RP_HOST
     /* Set initial mass on first execution */
     if (first_call)
     {
@@ -89,6 +94,12 @@ DEFINE_ADJUST(update_container_pressure, domain)
                    current_time, dt, mass_flow_rate, m_current, P_new);
         }
     }
+#endif /* !RP_HOST */
+    
+    /* Synchronize pressure value across all nodes */
+#if RP_NODE
+    P_updated = PRF_GRSUM1(P_updated);
+#endif
 }
 
 /* DEFINE_PROFILE UDF to set pressure boundary condition */
