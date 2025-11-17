@@ -1,81 +1,105 @@
 #include "udf.h"
 #include "sg_mphase.h"
 
-/* 글로벌 변수로 용기의 초기 질량과 부피를 정의합니다. */
-/* 실제 값에 맞게 수정하세요 */
-real V_container = 10;      /* 용기 부피 (m^3) */
-real m_current;              /* 현재 용기 내 질량 (kg) - 전역 변수로 선언 */
-real T_container = 25+273.15;    /* 용기 온도 (K) - 등온 가정 */
-real R_gas = 8.314*10^-3/88.15;          /* 기체 상수 (J/(kg*K)) = 8.314e-3 [J/kmol*K] / gas MW [kg/kmol] */
+/* Define global variables for initial mass and volume of the container */
+/* Modify these values to match actual conditions */
+real V_container = 10;      /* Container volume (m^3) */
+real m_current;              /* Current mass in container (kg) - declared as global variable */
+real T_container = 25+273.15;    /* Container temperature (K) - isothermal assumption */
+real R_gas = 8.314*10^-3/88.15;          /* Gas constant (J/(kg*K)) = 8.314e-3 [J/kmol*K] / gas MW [kg/kmol] */
 
-/* 초기 압력 (Pa) - 예시: 3 kgf/cm2 게이지 압력 + 대기압 (1 atm = 101325 pa) */
+/* Initial pressure (Pa) - Example: 3 kgf/cm2 gauge pressure + atmospheric pressure (1 atm = 101325 Pa) */
 real P_initial = 405300.0;
 
-/* UDF_ADJUST 매크로를 사용하여 매 타임 스텝 시작 전 실행 */
+/* Global variables for time step calculation */
+static real previous_time = 0.0;
+static int first_call = 1;
+
+/* Global variable to store updated pressure */
+real P_updated = 405300.0;
+
+/* Execute before each time step using UDF_ADJUST macro */
 DEFINE_ADJUST(update_container_pressure, domain)
 {
-    /* 최초 실행 시 초기 질량 설정 */
-    if (strcmp(string_var("case-name"), "initialized") != 0)
+    /* Set initial mass on first execution */
+    if (first_call)
     {
-        /* P = mRT/V 를 이용해 초기 질량 계산 */
+        /* Calculate initial mass using P = mRT/V */
         m_current = P_initial * V_container / (R_gas * T_container);
-        /* 초기화 플래그 설정 (재초기화 방지) */
-        host_to_node_string_var_set("case-name", "initialized");
+        previous_time = CURRENT_TIME;
+        first_call = 0;
+        return; /* Skip calculation on first call */
     }
     
-    /* 현재 타임 스텝 길이 가져오기 (비정상 해석 시 필요) */
-    real dt = NV_MAG(SG_GTIME);
+    /* Calculate time step length */
+    real current_time = CURRENT_TIME;
+    real dt = current_time - previous_time;
+    previous_time = current_time;
     
-    if (dt > 0.0) /* 첫 타임 스텝 이후부터 계산 */
+    if (dt > 0.0) /* Calculate from second time step onwards */
     {
-        /* 1. 출구 표면 포인터 찾기 (Fluent 내 이름과 일치해야 함) */
-        Thread *t = Lookup_Thread(domain, "outlet"); /* "outlet" 이름을 실제 경계면 이름으로 변경하세요 */
+        /* 1. Find outlet surface pointer (must match the name in Fluent) */
+        Thread *t = Lookup_Thread(domain, "inlet_r51101_burst"); /* Change "outlet" name to actual boundary name */
 
         if (t != NULL)
         {
-            /* 2. 출구를 통한 질량 유량 계산 (Surface Integral 함수 사용) */
-            /* Compute_Surface_Integral 함수는 UDF 내에서 사용 불가능 */
-            /* 따라서 C_FLUX 매크로를 이용하여 각 셀 페이스의 유량 합산 */
+            /* 2. Calculate mass flow rate through outlet */
+            /* Sum mass flow rates of each cell face */
             
             real mass_flow_rate = 0.0;
             face_t f;
+            cell_t c0, c1;
 
             begin_f_loop(f, t)
             {
-                /* F_FLUX 매크로는 질량 유량 (kg/s)을 반환 */
-                /* Fluent는 내부적으로 유출을 양수로 처리합니다. */
-                mass_flow_rate += F_FLUX(f, t);
+                /* Get adjacent cells */
+                c0 = F_C0(f, t);
+                c1 = F_C1(f, t);
+                
+                /* Calculate mass flux = density * velocity flux */
+                if (c1 == -1) /* External boundary */
+                {
+                    real density = C_R(c0, THREAD_T0(t));
+                    mass_flow_rate += density * F_FLUX(f, t);
+                }
+                else /* Internal face - should not occur for boundary */
+                {
+                    real density = 0.5 * (C_R(c0, THREAD_T0(t)) + C_R(c1, THREAD_T1(t)));
+                    mass_flow_rate += density * F_FLUX(f, t);
+                }
             }
             end_f_loop(f, t)
             
-            /* 3. 용기 내 질량 업데이트 */
-            /* 빠져나간 질량 = 유량 * 타임 스텝 */
+            /* 3. Update mass in container */
+            /* Mass lost = flow rate * time step */
+            /* Note: Positive flux means outflow from domain */
             m_current -= mass_flow_rate * dt;
 
-            /* 질량이 0보다 작아지지 않도록 보정 (물리적 제한) */
+            /* Correct to prevent mass from becoming negative (physical constraint) */
             if (m_current < 0.0) m_current = 0.0;
+            
+            /* 4. Calculate new container pressure */
+            real P_new = (m_current * R_gas * T_container) / V_container;
+
+            /* Update global pressure variable */
+            P_updated = P_new;
+
+            /* Print to console for debugging and monitoring */
+            printf("\nTime: %f s, dt: %f s, Mass Flow Rate: %f kg/s, Current Mass: %f kg, New Pressure: %f Pa\n", 
+                   current_time, dt, mass_flow_rate, m_current, P_new);
         }
-
-        /* 4. 새로운 용기 압력 계산 */
-        real P_new = (m_current * R_gas * T_container) / V_container;
-
-        /* 5. 새로운 압력을 경계 조건에 적용 */
-        /* Lookup_Thread를 다시 사용하여 경계면의 압력을 설정 */
-        Thread *t_bc = Lookup_Thread(domain, "outlet"); /* 동일한 "outlet" 이름 사용 */
-        if (t_bc != NULL)
-        {
-            /* 모든 페이스에 새로운 압력 경계 조건 설정 */
-            begin_f_loop(f, t_bc)
-            {
-                /* F_PROFILE 매크로를 사용하여 압력 경계 조건 설정 */
-                /* 이 UDF는 압력 입구/출구 조건(Pressure Inlet/Outlet)에 적용되어야 함 */
-                F_PROFILE(f, t_bc, SV_P) = P_new; 
-            }
-            end_f_loop(f, t_bc)
-        }
-
-        /* 디버깅 및 모니터링을 위해 콘솔에 출력 */
-        printf("\nTime Step: %f, Mass Flow Rate: %f kg/s, New Pressure: %f Pa\n", 
-               rp_time, mass_flow_rate, P_new);
     }
+}
+
+/* DEFINE_PROFILE UDF to set pressure boundary condition */
+/* This should be assigned to the pressure inlet/outlet boundary in Fluent GUI */
+DEFINE_PROFILE(pressure_profile, t, i)
+{
+    face_t f;
+    
+    begin_f_loop(f, t)
+    {
+        F_PROFILE(f, t, i) = P_updated;
+    }
+    end_f_loop(f, t)
 }
