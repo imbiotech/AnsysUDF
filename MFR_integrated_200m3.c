@@ -1,30 +1,30 @@
 #include "udf.h"
 
 /*
- * ANSYS UDF: Inlet 경계면의 유속 계산 함수
+ * ANSYS UDF: Inlet Boundary Mass Flow Rate Calculation
  * 
- * Transient 해석에서 유체 질량 감소에 따라 inlet 유속을 계산
+ * For Transient Analysis: Calculates inlet mass flow rate based on fluid mass reduction
  */
 
-/* 전역 변수: 유체의 초기값 및 경계면 정보 */
-static real initial_mass = 0.0;             /* 유체의 최초 질량 (kg) */
-static real initial_supply_pressure = 0.0; /* 유체의 최초 공급압 (Pa) */
-static char inlet_boundary_name[256] = "";  /* 경계면의 이름 */
+/* Global Variables */
+static real initial_mass = 0.0;             /* Initial fluid mass (kg) */
+static real initial_supply_pressure = 0.0; /* Initial supply pressure (Pa) */
+static char inlet_boundary_name[256] = "";  /* Inlet boundary name */
 
-static real current_total_mass = 0.0;       /* 현재 유체의 총량 (kg) */
+static real current_total_mass = 0.0;       /* Current total fluid mass (kg) */
 
 /*
- * 함수: Calculate_Inlet_Mass_Flow_Rate
- * 목적: inlet 경계면의 질량 유량을 유체 질량에 비례해서 계산 (transient 해석)
+ * Function: Calculate_Inlet_Mass_Flow_Rate
+ * Purpose: Calculate inlet mass flow rate proportional to fluid mass (transient analysis)
  * 
- * 반환값: 계산된 inlet 질량 유량 (kg/s)
+ * Return: Calculated inlet mass flow rate (kg/s)
  * 
- * 계산식:
+ * Formula:
  * new_mass_flow_rate = base_mass_flow_rate * (current_total_mass / initial_mass)
  */
 real Calculate_Inlet_Mass_Flow_Rate(
-    real total_mass,              /* 현재 유체의 총량 (kg) */
-    real base_mass_flow_rate)     /* 기본 inlet 질량 유량 (kg/s) */
+    real total_mass,              /* Current total fluid mass (kg) */
+    real base_mass_flow_rate)     /* Base inlet mass flow rate (kg/s) */
 {
     real new_mass_flow_rate;
     real mass_ratio;
@@ -46,15 +46,15 @@ real Calculate_Inlet_Mass_Flow_Rate(
 }
 
 /*
- * 함수: DEFINE_PROFILE (inlet_mass_flow_rate_profile)
- * 목적: inlet 경계면에서의 질량 유량 프로파일 정의
+ * Function: DEFINE_PROFILE (inlet_mass_flow_rate_profile)
+ * Purpose: Define mass flow rate profile at inlet boundary
  */
 DEFINE_PROFILE(inlet_mass_flow_rate_profile, thread, position)
 {
     real mass_flow_rate;
     face_t f;
     
-    /* *** [필수 입력] 기본 inlet 질량 유량 (kg/s) - 사용자가 직접 입력 *** */
+    /* *** [USER INPUT] Base inlet mass flow rate (kg/s) - Modify this value *** */
     real base_mass_flow_rate = 1.0;  
     
     real current_mass = current_total_mass;
@@ -68,8 +68,8 @@ DEFINE_PROFILE(inlet_mass_flow_rate_profile, thread, position)
 }
 
 /*
- * 함수: Set_Total_Mass
- * 목적: 매 time step마다 현재 유체 총량 업데이트
+ * Function: Set_Total_Mass
+ * Purpose: Update current total fluid mass for each time step
  */
 void Set_Total_Mass(real mass)
 {
@@ -77,8 +77,8 @@ void Set_Total_Mass(real mass)
 }
 
 /*
- * 함수: Get_Inlet_Mass_Flow_Rate
- * 목적: 계산된 inlet 질량 유량 조회
+ * Function: Get_Inlet_Mass_Flow_Rate
+ * Purpose: Query calculated inlet mass flow rate
  */
 real Get_Inlet_Mass_Flow_Rate(real base_mass_flow_rate)
 {
@@ -86,8 +86,8 @@ real Get_Inlet_Mass_Flow_Rate(real base_mass_flow_rate)
 }
 
 /*
- * 함수: Reset_Total_Mass
- * 목적: 해석 시작 전 초기화
+ * Function: Reset_Total_Mass
+ * Purpose: Initialize before analysis
  */
 void Reset_Total_Mass(void)
 {
@@ -95,14 +95,14 @@ void Reset_Total_Mass(void)
 }
 
 /*
- * 함수: Set_Initial_Parameters
- * 목적: 초기 파라미터 설정
+ * Function: Set_Initial_Parameters
+ * Purpose: Set initial parameters
  * 
- * *** [필수 입력] 해석 시작 전에 실제 값으로 호출 ***
- * 예시: Set_Initial_Parameters(100.0, 101325.0, "inlet");
- *       - 첫번째 인자: 유체의 최초 질량 (kg)
- *       - 두번째 인자: 유체의 최초 공급압 (Pa)
- *       - 세번째 인자: 경계면의 이름 (문자열)
+ * *** [USER INPUT] Call this function before analysis with actual values ***
+ * Example: Set_Initial_Parameters(100.0, 101325.0, "inlet");
+ *          - First argument: Initial fluid mass (kg)
+ *          - Second argument: Initial supply pressure (Pa)
+ *          - Third argument: Inlet boundary name (string)
  */
 void Set_Initial_Parameters(real mass, real supply_pressure, const char *boundary_name)
 {
@@ -117,10 +117,10 @@ void Set_Initial_Parameters(real mass, real supply_pressure, const char *boundar
 }
 
 /*
- * 함수: Get_Initial_Mass
- * 목적: 유체의 최초 질량 조회
+ * Function: Get_Initial_Mass
+ * Purpose: Query initial fluid mass
  * 
- * 반환값: 유체의 최초 질량 (kg)
+ * Return: Initial fluid mass (kg)
  */
 real Get_Initial_Mass(void)
 {
@@ -128,10 +128,10 @@ real Get_Initial_Mass(void)
 }
 
 /*
- * 함수: Get_Initial_Supply_Pressure
- * 목적: 유체의 최초 공급압 조회
+ * Function: Get_Initial_Supply_Pressure
+ * Purpose: Query initial supply pressure
  * 
- * 반환값: 유체의 최초 공급압 (Pa)
+ * Return: Initial supply pressure (Pa)
  */
 real Get_Initial_Supply_Pressure(void)
 {
@@ -139,10 +139,10 @@ real Get_Initial_Supply_Pressure(void)
 }
 
 /*
- * 함수: Get_Inlet_Boundary_Name
- * 목적: 경계면의 이름 조회
+ * Function: Get_Inlet_Boundary_Name
+ * Purpose: Query inlet boundary name
  * 
- * 반환값: 경계면의 이름 (문자열 포인터)
+ * Return: Inlet boundary name (string pointer)
  */
 const char* Get_Inlet_Boundary_Name(void)
 {
